@@ -144,6 +144,6 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 	}
 
 	// Wait for the page to be idle when it comes to network traffic
-	waiter := page.WaitRequestIdle(1*time.Second, nil, nil)
+	waiter := page.WaitRequestIdle(2*time.Second, nil, nil)
 	waiter()
 }
