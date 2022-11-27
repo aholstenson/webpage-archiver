@@ -9,6 +9,8 @@ import (
 type Reporter interface {
 	io.Closer
 
+	Start(url string)
+
 	Debug(msg string)
 
 	Error(err error, msg string)

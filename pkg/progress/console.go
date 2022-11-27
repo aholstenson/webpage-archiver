@@ -7,31 +7,39 @@ import (
 	"github.com/aholstenson/webpage-archiver/pkg/network"
 )
 
-type ConsoleReporter struct {
+type consoleReporter struct {
 }
 
-func (c *ConsoleReporter) print(msg string) {
+func NewConsoleReporter() (Reporter, error) {
+	return &consoleReporter{}, nil
+}
+
+func (c *consoleReporter) print(msg string) {
 	os.Stdout.Write([]byte(msg + "\n"))
 }
 
-func (c *ConsoleReporter) Close() error {
+func (c *consoleReporter) Close() error {
 	return nil
 }
 
-func (c *ConsoleReporter) Debug(msg string) {
+func (c *consoleReporter) Start(url string) {
+	c.print("🌎 " + url)
+}
+
+func (c *consoleReporter) Debug(msg string) {
 	c.print(msg)
 }
 
-func (c *ConsoleReporter) Error(err error, msg string) {
+func (c *consoleReporter) Error(err error, msg string) {
 	c.print("❌ " + msg + ": " + err.Error())
 }
 
-func (c *ConsoleReporter) Request(req *network.Request) {
+func (c *consoleReporter) Request(req *network.Request) {
 	c.print("⬆️ " + req.Method + " " + req.URL)
 }
 
-func (c *ConsoleReporter) Response(res *network.Response) {
+func (c *consoleReporter) Response(res *network.Response) {
 	c.print("⬇️ " + strconv.Itoa(res.StatusCode) + " " + res.URL)
 }
 
-var _ Reporter = &ConsoleReporter{}
+var _ Reporter = &consoleReporter{}

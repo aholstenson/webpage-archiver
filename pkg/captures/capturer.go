@@ -64,6 +64,8 @@ func (c *Capturer) Close() error {
 }
 
 func (c *Capturer) Capture(ctx context.Context, requestURL string) {
+	c.reporter.Start(requestURL)
+
 	page, err := stealth.Page(c.browser)
 	if err != nil {
 		c.reporter.Error(err, "Could not fetch webpage")
@@ -125,21 +127,23 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 	})
 	go router.Run()
 
+	defer router.Stop()
+	defer page.Close()
+
 	err = page.Navigate(requestURL)
 	if err != nil {
 		c.reporter.Error(err, "Could not navigate to URL")
-		router.Stop()
 		return
 	}
 
 	// Wait for the page to be considered loaded
-	page.MustWaitLoad()
+	err = page.WaitLoad()
+	if err != nil {
+		c.reporter.Error(err, "Could not load page")
+		return
+	}
 
 	// Wait for the page to be idle when it comes to network traffic
 	waiter := page.WaitRequestIdle(1*time.Second, nil, nil)
 	waiter()
-
-	// Stop the router
-	router.Stop()
-	page.Close()
 }
