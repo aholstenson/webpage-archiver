@@ -9,6 +9,9 @@ type capturerOptions struct {
 	reporter  progress.Reporter
 	output    outputs.Output
 	userAgent string
+
+	screenshotDirectory string
+	screenshotPrefix    string
 }
 
 type Option func(o *capturerOptions)
@@ -28,5 +31,12 @@ func WithOutput(output outputs.Output) Option {
 func WithUserAgent(ua string) Option {
 	return func(o *capturerOptions) {
 		o.userAgent = ua
+	}
+}
+
+func WithScreenshots(directory string, prefix string) Option {
+	return func(o *capturerOptions) {
+		o.screenshotDirectory = directory
+		o.screenshotPrefix = prefix
 	}
 }

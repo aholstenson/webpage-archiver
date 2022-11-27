@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path"
+	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/aholstenson/webpage-archiver/pkg/network"
@@ -19,10 +23,13 @@ type Capturer struct {
 	reporter progress.Reporter
 	output   outputs.Output
 
+	userAgent           string
+	screenshotDirectory string
+	screenshotPrefix    string
+
 	browser    *rod.Browser
 	httpClient *http.Client
-
-	userAgent string
+	request    atomic.Int32
 }
 
 func NewCapturer(opts ...Option) (*Capturer, error) {
@@ -56,6 +63,9 @@ func NewCapturer(opts ...Option) (*Capturer, error) {
 
 		httpClient: httpClient,
 		userAgent:  options.userAgent,
+
+		screenshotDirectory: options.screenshotDirectory,
+		screenshotPrefix:    options.screenshotPrefix,
 	}, nil
 }
 
@@ -64,6 +74,7 @@ func (c *Capturer) Close() error {
 }
 
 func (c *Capturer) Capture(ctx context.Context, requestURL string) {
+	req := c.request.Add(1)
 	c.reporter.Start(requestURL)
 
 	page, err := stealth.Page(c.browser)
@@ -146,4 +157,21 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 	// Wait for the page to be idle when it comes to network traffic
 	waiter := page.WaitRequestIdle(2*time.Second, nil, nil)
 	waiter()
+
+	if c.screenshotDirectory != "" {
+		data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
+			Format: proto.PageCaptureScreenshotFormatPng,
+		})
+		if err != nil {
+			c.reporter.Error(err, "Could not screenshot page")
+			return
+		}
+
+		name := path.Join(c.screenshotDirectory, c.screenshotPrefix+"screenshot-"+strconv.Itoa(int(req))+".png")
+		err = os.WriteFile(name, data, 0666)
+		if err != nil {
+			c.reporter.Error(err, "Could not save screenshot")
+			return
+		}
+	}
 }

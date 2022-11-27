@@ -12,9 +12,10 @@ type WARCOutput struct {
 	writer *gowarc.WarcFileWriter
 }
 
-func NewWARCOutput(directory string) (*WARCOutput, error) {
+func NewWARCOutput(directory string, prefix string) (*WARCOutput, error) {
 	writer := gowarc.NewWarcFileWriter(gowarc.WithFileNameGenerator(&gowarc.PatternNameGenerator{
 		Directory: directory,
+		Pattern:   prefix + "%04{serial}d.%{ext}s",
 	}))
 
 	return &WARCOutput{
