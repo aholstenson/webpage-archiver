@@ -210,13 +210,42 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 		return
 	}
 
+	idle := make(chan any)
 	c.reporter.Info("Waiting for page to fully load")
-	// Wait for the page to be idle when it comes to network traffic
 	waiter := page.WaitRequestIdle(2*time.Second, nil, nil)
-	waiter()
+	go func() {
+		// Wait for the page to be idle when it comes to network traffic
+		waiter()
+		idle <- struct{}{}
+	}()
+
+	// In an attempt to capture pages that lazy-load images and content we
+	// implement a loop where we either wait for the context to be done or
+	// the requests to be idle. While doing this we also scroll the site a
+	// little bit to trigger loading of new content.
+_outer:
+	for {
+		select {
+		case <-ctx.Done():
+			// The context has been canceled, return
+			return
+		case <-idle:
+			// If network is idle stop waiting
+			break _outer
+		case <-time.After(100):
+			// After a small delay we try to scroll a bit in an attempt to
+			// capture the entire page.
+			page.Mouse.Scroll(0, 50, 1)
+		}
+	}
 
 	if c.screenshotDirectory != "" {
 		c.reporter.Info("Taking screenshot")
+
+		// Update the viewport to scroll to the top
+		page.AddScriptTag("", "window.scrollTo(0,0)")
+		time.Sleep(100)
+
 		data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
 			Format: proto.PageCaptureScreenshotFormatPng,
 		})
