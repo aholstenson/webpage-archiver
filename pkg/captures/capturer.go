@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -130,8 +131,15 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 
 		err = ctx.LoadResponse(c.httpClient, true)
 		if err != nil {
-			if !errors.Is(err, context.Canceled) {
+			var dnsError *net.DNSError
+			if errors.As(err, &dnsError) {
+				ctx.Response.Fail(proto.NetworkErrorReasonAddressUnreachable)
 				c.reporter.Error(err, "Could not load response")
+			} else if !errors.Is(err, context.Canceled) {
+				ctx.Response.Fail(proto.NetworkErrorReasonConnectionFailed)
+				c.reporter.Error(err, "Could not load response")
+			} else {
+				ctx.Response.Fail(proto.NetworkErrorReasonConnectionAborted)
 			}
 			return
 		}
