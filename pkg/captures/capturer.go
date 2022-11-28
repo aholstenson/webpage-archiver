@@ -1,9 +1,11 @@
 package captures
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -121,7 +123,7 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 			Method:  ctx.Request.Method(),
 			Headers: network.Header(ctx.Request.Req().Header),
 		}
-		err := c.output.Request(request)
+		err := c.output.Request(ctx.Request.Req())
 		if err != nil {
 			c.reporter.Error(err, "Could not write request")
 			return
@@ -129,7 +131,7 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 
 		c.reporter.Request(request)
 
-		err = ctx.LoadResponse(c.httpClient, true)
+		res, err := c.httpClient.Do(ctx.Request.Req())
 		if err != nil {
 			var dnsError *net.DNSError
 			if errors.As(err, &dnsError) {
@@ -144,6 +146,24 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 			return
 		}
 
+		defer func() { _ = res.Body.Close() }()
+
+		ctx.Response.Payload().ResponseCode = res.StatusCode
+
+		for k, vs := range res.Header {
+			for _, v := range vs {
+				ctx.Response.SetHeader(k, v)
+			}
+		}
+
+		b, err := io.ReadAll(res.Body)
+		if err != nil {
+			ctx.Response.Fail(proto.NetworkErrorReasonConnectionAborted)
+			return
+		}
+		ctx.Response.Payload().Body = b
+		res.Body = io.NopCloser(bytes.NewBuffer(b))
+
 		response := &network.Response{
 			URL:          ctx.Request.URL().String(),
 			Headers:      network.Header(ctx.Response.Headers()),
@@ -155,7 +175,7 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 			response.StatusPhrase = http.StatusText(response.StatusCode)
 		}
 
-		err = c.output.Response(response)
+		err = c.output.Response(ctx.Request.Req(), res)
 		if err != nil {
 			c.reporter.Error(err, "Could write response")
 			return

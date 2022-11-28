@@ -2,14 +2,13 @@ package outputs
 
 import (
 	"io"
-
-	"github.com/aholstenson/webpage-archiver/pkg/network"
+	"net/http"
 )
 
 type Output interface {
 	io.Closer
 
-	Request(req *network.Request) error
+	Request(req *http.Request) error
 
-	Response(req *network.Response) error
+	Response(req *http.Request, res *http.Response) error
 }

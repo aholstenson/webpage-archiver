@@ -1,10 +1,10 @@
 package outputs
 
 import (
-	"strconv"
+	"net/http"
+	"net/http/httputil"
 	"time"
 
-	"github.com/aholstenson/webpage-archiver/pkg/network"
 	"github.com/nlnwa/gowarc"
 )
 
@@ -27,38 +27,24 @@ func (o *WARCOutput) Close() error {
 	return o.writer.Close()
 }
 
-func (o *WARCOutput) Request(req *network.Request) error {
+func (o *WARCOutput) Request(req *http.Request) error {
 	return nil
 }
 
-func (o *WARCOutput) Response(res *network.Response) error {
+func (o *WARCOutput) Response(req *http.Request, res *http.Response) error {
 	builder := gowarc.NewRecordBuilder(gowarc.Response)
 
-	_, err := builder.WriteString("HTTP/1.1 " + strconv.Itoa(res.StatusCode) + " " + res.StatusPhrase + "\n")
+	data, err := httputil.DumpResponse(res, true)
 	if err != nil {
 		return err
 	}
 
-	for key, values := range res.Headers {
-		for _, value := range values {
-			_, err = builder.WriteString(key + ": " + value + "\n")
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	_, err = builder.WriteString("\n")
+	_, err = builder.Write(data)
 	if err != nil {
 		return err
 	}
 
-	_, err = builder.Write(res.Body)
-	if err != nil {
-		return err
-	}
-
-	builder.AddWarcHeader(gowarc.WarcTargetURI, res.URL)
+	builder.AddWarcHeader(gowarc.WarcTargetURI, req.URL.String())
 	builder.AddWarcHeaderTime(gowarc.WarcDate, time.Now())
 	builder.AddWarcHeader(gowarc.ContentType, "application/http; msgtype=response")
 
