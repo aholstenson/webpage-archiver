@@ -27,6 +27,14 @@ func (o *WARCOutput) Close() error {
 	return o.writer.Close()
 }
 
+func (o *WARCOutput) StartPage(url string) error {
+	return nil
+}
+
+func (o *WARCOutput) FinishPage(url string) error {
+	return nil
+}
+
 func (o *WARCOutput) Request(req *http.Request) error {
 	return nil
 }

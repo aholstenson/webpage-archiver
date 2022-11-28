@@ -96,6 +96,11 @@ func (c *Capturer) Close() error {
 func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 	req := c.request.Add(1)
 	c.reporter.Action(requestURL)
+	err := c.output.StartPage(requestURL)
+	if err != nil {
+		c.reporter.Error(err, "Could not start output")
+		return
+	}
 
 	page, err := stealth.Page(c.browser)
 	if err != nil {
@@ -222,5 +227,11 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 			c.reporter.Error(err, "Could not save screenshot")
 			return
 		}
+	}
+
+	err = c.output.FinishPage(requestURL)
+	if err != nil {
+		c.reporter.Error(err, "Could not finish output")
+		return
 	}
 }

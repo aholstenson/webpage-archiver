@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"path"
 	"time"
 
 	"github.com/aholstenson/webpage-archiver/pkg/captures"
@@ -14,7 +15,8 @@ import (
 
 func main() {
 	var cli struct {
-		WARC string `type:"existingdir" required:"" help:"Directory where WARC files will be stored"`
+		WARC       string `type:"existingdir" required:"" group:"warc" xor:"singlefile,warc" help:"Directory where WARC files will be stored"`
+		SingleFile string `type:"existingdir" required:"" group:"singlefile" xor:"singlefile,warc" help:"Directory where HTML files will be stored"`
 
 		Screenshot bool `help:"Enable screenshots alongside other stored files"`
 
@@ -25,12 +27,24 @@ func main() {
 	cliCtx.FatalIfErrorf(cliCtx.Error)
 
 	prefix := time.Now().In(time.UTC).Format("20060102150405") + "-"
-	directory := cli.WARC
 
-	warcOutput, err := outputs.NewWARCOutput(cli.WARC, prefix)
-	if err != nil {
-		cliCtx.Errorf("Could not create WARC output: %s", err.Error())
-		return
+	var err error
+	var directory string
+	var output outputs.Output
+	if cli.WARC != "" {
+		directory = cli.WARC
+		output, err = outputs.NewWARCOutput(cli.WARC, prefix)
+		if err != nil {
+			cliCtx.Errorf("Could not create WARC output: %s", err.Error())
+			return
+		}
+	} else if cli.SingleFile != "" {
+		directory = cli.SingleFile
+		output, err = outputs.NewObeliskOutput(path.Join(directory, prefix))
+		if err != nil {
+			cliCtx.Errorf("Could not create single file output: %s", err.Error())
+			return
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,7 +70,7 @@ func main() {
 
 	options := []captures.Option{
 		captures.WithReporter(reporter),
-		captures.WithOutput(warcOutput),
+		captures.WithOutput(output),
 	}
 	if cli.Screenshot {
 		options = append(
@@ -80,7 +94,7 @@ func main() {
 	}
 
 	reporter.Info("Finalizing output")
-	warcOutput.Close()
+	output.Close()
 	reporter.Info("Closing browser")
 	capturer.Close()
 	reporter.Close()
