@@ -122,7 +122,7 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 	}
 
 	router := page.HijackRequests()
-	router.MustAdd("", func(ctx *rod.Hijack) {
+	err = router.Add("", "", func(ctx *rod.Hijack) {
 		request := &network.Request{
 			URL:     ctx.Request.URL().String(),
 			Method:  ctx.Request.Method(),
@@ -188,6 +188,10 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 
 		c.reporter.Response(response)
 	})
+	if err != nil {
+		c.reporter.Error(err, "Could not setup required request hijacking")
+		return
+	}
 	go router.Run()
 
 	defer router.Stop()
