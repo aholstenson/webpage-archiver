@@ -1,7 +1,6 @@
 package progress
 
 import (
-	"os"
 	"strconv"
 	"time"
 
@@ -60,8 +59,8 @@ type interactiveReporter struct {
 	logMessages        []any
 	logMessagesChannel chan any
 
-	url        string
-	urlChannel chan string
+	action        string
+	actionChannel chan string
 
 	program   *tea.Program
 	stopwatch stopwatch.Model
@@ -75,9 +74,9 @@ func NewInteractiveReporter(cancel func()) (Reporter, error) {
 		logMessages:        make([]any, 0),
 		logMessagesChannel: make(chan any),
 
-		urlChannel: make(chan string),
+		actionChannel: make(chan string),
 
-		stopwatch: stopwatch.NewWithInterval(time.Millisecond * 100),
+		stopwatch: stopwatch.NewWithInterval(time.Second),
 		spinner:   spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
 
@@ -85,10 +84,8 @@ func NewInteractiveReporter(cancel func()) (Reporter, error) {
 	m.program = p
 	go func() {
 		if _, err := p.Run(); err != nil {
-			os.Exit(1)
+			cancel()
 		}
-
-		cancel()
 	}()
 
 	return m, nil
@@ -96,11 +93,16 @@ func NewInteractiveReporter(cancel func()) (Reporter, error) {
 
 func (m *interactiveReporter) Close() error {
 	m.program.Quit()
+	m.program.ReleaseTerminal()
 	return nil
 }
 
-func (c *interactiveReporter) Start(url string) {
-	c.urlChannel <- url
+func (c *interactiveReporter) Action(url string) {
+	c.actionChannel <- url
+}
+
+func (m *interactiveReporter) Info(msg string) {
+	m.logMessagesChannel <- infoMessage(msg)
 }
 
 func (m *interactiveReporter) Debug(msg string) {
@@ -122,14 +124,14 @@ func (m *interactiveReporter) Response(res *network.Response) {
 func (m *interactiveReporter) Init() tea.Cmd {
 	return tea.Batch(
 		m.waitForLogMessage(m.logMessagesChannel),
-		m.waitForURL(m.urlChannel),
+		m.waitForURL(m.actionChannel),
 		m.stopwatch.Init(),
 		m.spinner.Tick,
 	)
 }
 
 func (m *interactiveReporter) View() string {
-	s := m.spinner.View() + styleTime.Render(m.stopwatch.View()) + styleCurrentURL.Render(m.url) + "\n\n"
+	s := m.spinner.View() + styleTime.Render(m.stopwatch.View()) + styleCurrentURL.Render(m.action) + "\n\n"
 	if len(m.logMessages) > 0 {
 		for _, m := range m.logMessages {
 			switch msg := m.(type) {
@@ -149,6 +151,8 @@ func (m *interactiveReporter) View() string {
 				s += statusStyle.Render(strconv.Itoa(msg.StatusCode)+" "+msg.StatusPhrase) + styleURL.Render(msg.URL) + "\n"
 			case debugMessage:
 				s += string(msg) + "\n"
+			case infoMessage:
+				s += string(msg) + "\n"
 			case errorMessage:
 				s += "❌ " + string(msg) + "\n"
 			}
@@ -162,11 +166,12 @@ func (m *interactiveReporter) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, quitKey):
-			return m, tea.Quit
+			m.ctxCancel()
+			return m, nil
 		}
-	case url:
-		m.url = string(msg)
-		return m, m.waitForURL(m.urlChannel)
+	case actionMsg:
+		m.action = string(msg)
+		return m, m.waitForURL(m.actionChannel)
 	case activityMsg:
 		if len(m.logMessages) >= 10 {
 			m.logMessages = m.logMessages[1:10]
@@ -198,7 +203,7 @@ func (m *interactiveReporter) waitForLogMessage(c chan any) tea.Cmd {
 
 func (m *interactiveReporter) waitForURL(c chan string) tea.Cmd {
 	return func() tea.Msg {
-		return url(<-c)
+		return actionMsg(<-c)
 	}
 }
 
@@ -206,7 +211,9 @@ type activityMsg struct {
 	data any
 }
 
-type url string
+type actionMsg string
+
+type infoMessage string
 
 type debugMessage string
 

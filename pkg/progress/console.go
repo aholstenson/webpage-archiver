@@ -22,8 +22,12 @@ func (c *consoleReporter) Close() error {
 	return nil
 }
 
-func (c *consoleReporter) Start(url string) {
-	c.print("🌎 " + url)
+func (c *consoleReporter) Action(msg string) {
+	c.print("🚀 " + msg)
+}
+
+func (c *consoleReporter) Info(msg string) {
+	c.print(msg)
 }
 
 func (c *consoleReporter) Debug(msg string) {

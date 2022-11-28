@@ -2,6 +2,7 @@ package captures
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/aholstenson/webpage-archiver/pkg/outputs"
 	"github.com/aholstenson/webpage-archiver/pkg/progress"
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/go-rod/rod/lib/utils"
 	"github.com/go-rod/stealth"
@@ -43,8 +45,23 @@ func NewCapturer(opts ...Option) (*Capturer, error) {
 		reporter.Debug(fmt.Sprint(msg...))
 	}
 
-	browser := rod.New().Logger(log)
-	err := browser.Connect()
+	reporter.Action("Finding browser")
+	browserDownloader := launcher.NewBrowser()
+	browserDownloader.Logger = log
+	browserBin, err := browserDownloader.Get()
+	if err != nil {
+		return nil, err
+	}
+
+	reporter.Action("Starting browser")
+	launcher := launcher.New().Bin(browserBin)
+	controlURL, err := launcher.Launch()
+	if err != nil {
+		return nil, err
+	}
+
+	browser := rod.New().ControlURL(controlURL).Logger(log)
+	err = browser.Connect()
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +92,7 @@ func (c *Capturer) Close() error {
 
 func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 	req := c.request.Add(1)
-	c.reporter.Start(requestURL)
+	c.reporter.Action(requestURL)
 
 	page, err := stealth.Page(c.browser)
 	if err != nil {
@@ -113,7 +130,9 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 
 		err = ctx.LoadResponse(c.httpClient, true)
 		if err != nil {
-			c.reporter.Error(err, "Could not load response")
+			if !errors.Is(err, context.Canceled) {
+				c.reporter.Error(err, "Could not load response")
+			}
 			return
 		}
 
@@ -154,11 +173,13 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 		return
 	}
 
+	c.reporter.Info("Waiting for page to fully load")
 	// Wait for the page to be idle when it comes to network traffic
 	waiter := page.WaitRequestIdle(2*time.Second, nil, nil)
 	waiter()
 
 	if c.screenshotDirectory != "" {
+		c.reporter.Info("Taking screenshot")
 		data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
 			Format: proto.PageCaptureScreenshotFormatPng,
 		})

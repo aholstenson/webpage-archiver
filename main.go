@@ -38,7 +38,10 @@ func main() {
 
 	var reporter progress.Reporter
 	if isatty.IsTerminal(os.Stdout.Fd()) {
-		reporter, err = progress.NewInteractiveReporter(cancel)
+		reporter, err = progress.NewInteractiveReporter(func() {
+			reporter.Info("Exiting")
+			cancel()
+		})
 		if err != nil {
 			cliCtx.Errorf("Could not create console reporter: %s", err.Error())
 			return
@@ -76,7 +79,9 @@ func main() {
 		}()
 	}
 
+	reporter.Info("Finalizing output")
 	warcOutput.Close()
-	reporter.Close()
+	reporter.Info("Closing browser")
 	capturer.Close()
+	reporter.Close()
 }
