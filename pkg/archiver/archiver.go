@@ -1,4 +1,4 @@
-package captures
+package archiver
 
 import (
 	"bytes"
@@ -8,13 +8,9 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path"
-	"strconv"
 	"sync/atomic"
 	"time"
 
-	"github.com/aholstenson/webpage-archiver/pkg/network"
 	"github.com/aholstenson/webpage-archiver/pkg/outputs"
 	"github.com/aholstenson/webpage-archiver/pkg/progress"
 	"github.com/go-rod/rod"
@@ -24,26 +20,22 @@ import (
 	"github.com/go-rod/stealth"
 )
 
-type Capturer struct {
-	reporter progress.Reporter
-	output   outputs.Output
-
-	userAgent           string
-	screenshotDirectory string
-	screenshotPrefix    string
+type Archiver struct {
+	reporter  progress.Reporter
+	userAgent string
 
 	browser    *rod.Browser
 	httpClient *http.Client
 	request    atomic.Int32
 }
 
-func NewCapturer(opts ...Option) (*Capturer, error) {
-	options := &capturerOptions{}
+func NewArchiver(opts ...Option) (*Archiver, error) {
+	config := &archiverConfig{}
 	for _, opt := range opts {
-		opt(options)
+		opt.applyArchiver(config)
 	}
 
-	reporter := options.reporter
+	reporter := config.reporter
 	var log utils.Log = func(msg ...any) {
 		reporter.Debug(fmt.Sprint(msg...))
 	}
@@ -75,36 +67,40 @@ func NewCapturer(opts ...Option) (*Capturer, error) {
 		},
 	}
 
-	return &Capturer{
-		reporter: options.reporter,
-		output:   options.output,
+	return &Archiver{
+		reporter: config.reporter,
 
 		browser: browser,
 
 		httpClient: httpClient,
-		userAgent:  options.userAgent,
-
-		screenshotDirectory: options.screenshotDirectory,
-		screenshotPrefix:    options.screenshotPrefix,
+		userAgent:  config.userAgent,
 	}, nil
 }
 
-func (c *Capturer) Close() error {
+func (c *Archiver) Close() error {
 	return c.browser.Close()
 }
 
-func (c *Capturer) Capture(ctx context.Context, requestURL string) {
-	req := c.request.Add(1)
-	c.reporter.Action(requestURL)
-	err := c.output.StartPage(requestURL)
-	if err != nil {
-		c.reporter.Error(err, "Could not start output")
-		return
+func (c *Archiver) Capture(
+	ctx context.Context,
+	requestURL string,
+	output outputs.Output,
+	opts ...CaptureOption,
+) {
+	config := &captureConfig{
+		reporter:  c.reporter,
+		userAgent: c.userAgent,
 	}
+	for _, opt := range opts {
+		opt.applyCapture(config)
+	}
+
+	reporter := config.reporter
+	reporter.Action(requestURL)
 
 	page, err := stealth.Page(c.browser)
 	if err != nil {
-		c.reporter.Error(err, "Could not fetch webpage")
+		reporter.Error(err, "Could not fetch webpage")
 		return
 	}
 
@@ -115,7 +111,7 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 		Height: 1080,
 	})
 
-	if c.userAgent != "" {
+	if config.userAgent != "" {
 		page.SetUserAgent(&proto.NetworkSetUserAgentOverride{
 			UserAgent: c.userAgent,
 		})
@@ -123,28 +119,27 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 
 	router := page.HijackRequests()
 	err = router.Add("", "", func(ctx *rod.Hijack) {
-		request := &network.Request{
-			URL:     ctx.Request.URL().String(),
-			Method:  ctx.Request.Method(),
-			Headers: network.Header(ctx.Request.Req().Header),
+		request := &progress.Request{
+			URL:    ctx.Request.URL().String(),
+			Method: ctx.Request.Method(),
 		}
-		err := c.output.Request(ctx.Request.Req())
+		err := output.Request(ctx.Request.Req())
 		if err != nil {
-			c.reporter.Error(err, "Could not write request")
+			reporter.Error(err, "Could not write request")
 			return
 		}
 
-		c.reporter.Request(request)
+		reporter.Request(request)
 
 		res, err := c.httpClient.Do(ctx.Request.Req())
 		if err != nil {
 			var dnsError *net.DNSError
 			if errors.As(err, &dnsError) {
 				ctx.Response.Fail(proto.NetworkErrorReasonAddressUnreachable)
-				c.reporter.Error(err, "Could not load response")
+				reporter.Error(err, "Could not load response")
 			} else if !errors.Is(err, context.Canceled) {
 				ctx.Response.Fail(proto.NetworkErrorReasonConnectionFailed)
-				c.reporter.Error(err, "Could not load response")
+				reporter.Error(err, "Could not load response")
 			} else {
 				ctx.Response.Fail(proto.NetworkErrorReasonConnectionAborted)
 			}
@@ -169,27 +164,26 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 		ctx.Response.Payload().Body = b
 		res.Body = io.NopCloser(bytes.NewBuffer(b))
 
-		response := &network.Response{
+		response := &progress.Response{
 			URL:          ctx.Request.URL().String(),
-			Headers:      network.Header(ctx.Response.Headers()),
 			StatusCode:   ctx.Response.Payload().ResponseCode,
 			StatusPhrase: ctx.Response.Payload().ResponsePhrase,
-			Body:         ctx.Response.Payload().Body,
+			BodySize:     len(ctx.Response.Payload().Body),
 		}
 		if response.StatusPhrase == "" {
 			response.StatusPhrase = http.StatusText(response.StatusCode)
 		}
 
-		err = c.output.Response(ctx.Request.Req(), res)
+		err = output.Response(ctx.Request.Req(), res)
 		if err != nil {
-			c.reporter.Error(err, "Could write response")
+			reporter.Error(err, "Could write response")
 			return
 		}
 
-		c.reporter.Response(response)
+		reporter.Response(response)
 	})
 	if err != nil {
-		c.reporter.Error(err, "Could not setup required request hijacking")
+		reporter.Error(err, "Could not setup required request hijacking")
 		return
 	}
 	go router.Run()
@@ -199,19 +193,19 @@ func (c *Capturer) Capture(ctx context.Context, requestURL string) {
 
 	err = page.Navigate(requestURL)
 	if err != nil {
-		c.reporter.Error(err, "Could not navigate to URL")
+		reporter.Error(err, "Could not navigate to URL")
 		return
 	}
 
 	// Wait for the page to be considered loaded
 	err = page.WaitLoad()
 	if err != nil {
-		c.reporter.Error(err, "Could not load page")
+		reporter.Error(err, "Could not load page")
 		return
 	}
 
 	idle := make(chan any)
-	c.reporter.Info("Waiting for page to fully load")
+	reporter.Info("Waiting for page to fully load")
 	waiter := page.WaitRequestIdle(2*time.Second, nil, nil)
 	go func() {
 		// Wait for the page to be idle when it comes to network traffic
@@ -239,8 +233,8 @@ _outer:
 		}
 	}
 
-	if c.screenshotDirectory != "" {
-		c.reporter.Info("Taking screenshot")
+	if config.screenshotFunc != nil {
+		reporter.Info("Taking screenshot")
 
 		// Update the viewport to scroll to the top
 		page.AddScriptTag("", "window.scrollTo(0,0)")
@@ -250,21 +244,14 @@ _outer:
 			Format: proto.PageCaptureScreenshotFormatPng,
 		})
 		if err != nil {
-			c.reporter.Error(err, "Could not screenshot page")
+			reporter.Error(err, "Could not screenshot page")
 			return
 		}
 
-		name := path.Join(c.screenshotDirectory, c.screenshotPrefix+"screenshot-"+strconv.Itoa(int(req))+".png")
-		err = os.WriteFile(name, data, 0666)
+		err = config.screenshotFunc(data)
 		if err != nil {
-			c.reporter.Error(err, "Could not save screenshot")
+			reporter.Error(err, "Could not handle screenshot")
 			return
 		}
-	}
-
-	err = c.output.FinishPage(requestURL)
-	if err != nil {
-		c.reporter.Error(err, "Could not finish output")
-		return
 	}
 }

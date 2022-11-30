@@ -1,14 +1,6 @@
 package progress
 
-import (
-	"io"
-
-	"github.com/aholstenson/webpage-archiver/pkg/network"
-)
-
 type Reporter interface {
-	io.Closer
-
 	// Action sets the current action.
 	Action(action string)
 
@@ -22,8 +14,8 @@ type Reporter interface {
 	Error(err error, msg string)
 
 	// Request is called when a request for a certain resource is started.
-	Request(req *network.Request)
+	Request(req *Request)
 
 	// Response is called when a response for a request is received.
-	Response(res *network.Response)
+	Response(res *Response)
 }

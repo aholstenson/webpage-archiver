@@ -1,4 +1,4 @@
-package outputs
+package singlefile
 
 import (
 	"bufio"
@@ -11,48 +11,40 @@ import (
 	"net/http/httputil"
 	"os"
 	"path"
-	"strconv"
-	"sync/atomic"
 
+	"github.com/aholstenson/webpage-archiver/pkg/outputs"
 	"github.com/go-shiori/obelisk"
 	"github.com/rosshhun/gonormalizer"
 )
 
-type ObeliskOutput struct {
+type SingleFileOutput struct {
 	tmpDir   string
 	filename string
-
-	file atomic.Int32
+	url      string
 }
 
-func NewObeliskOutput(filename string) (*ObeliskOutput, error) {
+func NewOutput(filename string) (*SingleFileOutput, error) {
 	tmpDir, err := os.MkdirTemp("", "webpage-archiver")
 	if err != nil {
 		return nil, err
 	}
 
-	return &ObeliskOutput{
+	return &SingleFileOutput{
 		tmpDir:   tmpDir,
 		filename: filename,
 	}, nil
 }
 
-func (o *ObeliskOutput) Close() error {
-	return os.RemoveAll(o.tmpDir)
-}
+func (o *SingleFileOutput) Close() error {
+	defer os.RemoveAll(o.tmpDir)
 
-func (o *ObeliskOutput) StartPage(url string) error {
-	return nil
-}
-
-func (o *ObeliskOutput) FinishPage(url string) error {
 	archiver := obelisk.Archiver{
 		Transport: o,
 	}
 	archiver.Validate()
 
 	data, ct, err := archiver.Archive(context.Background(), obelisk.Request{
-		URL: url,
+		URL: o.url,
 	})
 	if err != nil {
 		return err
@@ -70,15 +62,17 @@ func (o *ObeliskOutput) FinishPage(url string) error {
 		}
 	}
 
-	id := o.file.Add(1)
-	return os.WriteFile(o.filename+strconv.Itoa(int(id))+ext, data, 0666)
+	return os.WriteFile(o.filename+ext, data, 0666)
 }
 
-func (o *ObeliskOutput) Request(req *http.Request) error {
+func (o *SingleFileOutput) Request(req *http.Request) error {
+	if o.url == "" {
+		o.url = req.URL.String()
+	}
 	return nil
 }
 
-func (o *ObeliskOutput) Response(req *http.Request, res *http.Response) error {
+func (o *SingleFileOutput) Response(req *http.Request, res *http.Response) error {
 	data, err := httputil.DumpResponse(res, true)
 	if err != nil {
 		return err
@@ -87,7 +81,7 @@ func (o *ObeliskOutput) Response(req *http.Request, res *http.Response) error {
 	return os.WriteFile(path, data, 0666)
 }
 
-func (o *ObeliskOutput) RoundTrip(req *http.Request) (*http.Response, error) {
+func (o *SingleFileOutput) RoundTrip(req *http.Request) (*http.Response, error) {
 	path := o.pathTo(req.URL.String())
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -120,7 +114,7 @@ func (o *ObeliskOutput) RoundTrip(req *http.Request) (*http.Response, error) {
 	return res, nil
 }
 
-func (o *ObeliskOutput) pathTo(url string) string {
+func (o *SingleFileOutput) pathTo(url string) string {
 	nurl, err := gonormalizer.Normalize(url)
 	if err != nil {
 		// If there's an error ignore it and try with the original URL
@@ -133,4 +127,4 @@ func (o *ObeliskOutput) pathTo(url string) string {
 	return path.Join(o.tmpDir, id)
 }
 
-var _ Output = &ObeliskOutput{}
+var _ outputs.Output = &SingleFileOutput{}

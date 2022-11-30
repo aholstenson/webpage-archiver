@@ -1,10 +1,10 @@
-package progress
+package runner
 
 import (
 	"strconv"
 	"time"
 
-	"github.com/aholstenson/webpage-archiver/pkg/network"
+	"github.com/aholstenson/webpage-archiver/pkg/progress"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/stopwatch"
@@ -67,7 +67,7 @@ type interactiveReporter struct {
 	spinner   spinner.Model
 }
 
-func NewInteractiveReporter(cancel func()) (Reporter, error) {
+func newInteractiveReporter(cancel func()) (progress.Reporter, error) {
 	m := &interactiveReporter{
 		ctxCancel: cancel,
 
@@ -113,11 +113,11 @@ func (m *interactiveReporter) Error(err error, msg string) {
 	m.logMessagesChannel <- errorMessage(msg + ": " + err.Error())
 }
 
-func (m *interactiveReporter) Request(req *network.Request) {
+func (m *interactiveReporter) Request(req *progress.Request) {
 	m.logMessagesChannel <- req
 }
 
-func (m *interactiveReporter) Response(res *network.Response) {
+func (m *interactiveReporter) Response(res *progress.Response) {
 	m.logMessagesChannel <- res
 }
 
@@ -135,9 +135,9 @@ func (m *interactiveReporter) View() string {
 	if len(m.logMessages) > 0 {
 		for _, m := range m.logMessages {
 			switch msg := m.(type) {
-			case *network.Request:
+			case *progress.Request:
 				s += styleMethod.Render(msg.Method) + styleURL.Render(msg.URL) + "\n"
-			case *network.Response:
+			case *progress.Response:
 				statusStyle := styleDefault
 				if msg.StatusCode >= 200 && msg.StatusCode < 300 {
 					statusStyle = style2xx

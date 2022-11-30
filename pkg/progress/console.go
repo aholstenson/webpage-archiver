@@ -3,8 +3,6 @@ package progress
 import (
 	"os"
 	"strconv"
-
-	"github.com/aholstenson/webpage-archiver/pkg/network"
 )
 
 type consoleReporter struct {
@@ -38,11 +36,11 @@ func (c *consoleReporter) Error(err error, msg string) {
 	c.print("❌ " + msg + ": " + err.Error())
 }
 
-func (c *consoleReporter) Request(req *network.Request) {
+func (c *consoleReporter) Request(req *Request) {
 	c.print("⬆️ " + req.Method + " " + req.URL)
 }
 
-func (c *consoleReporter) Response(res *network.Response) {
+func (c *consoleReporter) Response(res *Response) {
 	c.print("⬇️ " + strconv.Itoa(res.StatusCode) + " " + res.URL)
 }
 
